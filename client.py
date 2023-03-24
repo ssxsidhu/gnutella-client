@@ -76,6 +76,7 @@ class GnutellaClient:
     
     def accept_connections(self, port):
         server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_sock.bind(('', port))
         server_sock.listen()
         while True:
@@ -152,6 +153,7 @@ if __name__ == "__main__":
             client.help()
         elif command == "quit":
             client.disconnect()
+            SystemExit()
             break
         else:
             print("Invalid command. Type 'help' for a list of available commands.")
