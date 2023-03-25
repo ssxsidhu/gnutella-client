@@ -1,4 +1,6 @@
+import os
 import socket
+import sys
 import threading
 
 class ConnectionManager:
@@ -55,6 +57,9 @@ class GnutellaClient:
     def __init__(self):
         self.connection_manager = ConnectionManager()
         self.server_thread = None
+        self.client_threads = []
+        self.stop_event = threading.Event()
+        self.running = True
     
     def connect(self, host, port):
         try:
@@ -79,13 +84,14 @@ class GnutellaClient:
         server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_sock.bind(('', port))
         server_sock.listen()
-        while True:
+        while self.running:
             client_sock, client_addr = server_sock.accept()
             print(f"Accepted connection from {client_addr}")
             self.connection_manager.add(client_sock)
             client_handler = ConnectionHandler(client_sock, self.connection_manager)
-            client_thread = threading.Thread(target=client_handler.run)
-            client_thread.start()
+            c_thread = threading.Thread(target=client_handler.run)
+            self.client_threads.append(c_thread)
+            c_thread.start()
     
     def disconnect(self, sock=None):
         if sock:
@@ -115,6 +121,21 @@ download <file_id>: Download a file from the Gnutella network
 help: Show this help message
 quit: Quit the client
 """)
+    
+    def quit(self):
+        self.running = False
+        self.connection_manager.remove_all()
+        self.stop_event.set()
+
+        if self.server_thread:
+            self.server_thread.join(timeout=1)
+
+        if self.client_threads:
+            for thread in self.client_threads:
+                thread.join(timeout=1)
+        
+        print("Goodbye!")
+        os._exit(0)
 
 if __name__ == "__main__":
     client = GnutellaClient()
@@ -152,8 +173,9 @@ if __name__ == "__main__":
         elif command == "help":
             client.help()
         elif command == "quit":
-            client.disconnect()
-            SystemExit()
+            client.quit()
             break
         else:
             print("Invalid command. Type 'help' for a list of available commands.")
+        
+    
