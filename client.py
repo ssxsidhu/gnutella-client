@@ -11,6 +11,7 @@ def connect(host, port):
     # Connect to a given node in the Gnutella network
     global connections
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.connect((host, port))
     connections.append(sock)
     print("Connected to {}:{}".format(host, port))
@@ -57,6 +58,7 @@ def listen():
     host = ""  # accept connections on all available network interfaces
     port = 1234  # replace with an actual port number
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, port))
     sock.listen()
     print("Listening for incoming connections on port {}".format(port))
