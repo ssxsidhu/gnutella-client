@@ -6,11 +6,13 @@ import os
 connections = []
 downloads_folder = "Downloads"
 share_folder = "share"
+share_port = 6000
  
 def connect(host, port):
     # Connect to a given node in the Gnutella network
     global connections
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.connect((host, port))
     connections.append(sock)
     print("Connected to {}:{}".format(host, port))
@@ -25,16 +27,28 @@ def handle_query(data, conn):
                 file_path = os.path.join(share_folder, file_name)
                 with open(file_path, 'rb') as f:
                     file_data = f.read()
-                    response_str = "FIND {} {}\r\n".format(file_name, len(file_data))
-                    response_str += "Address {}:{}\r\n".format(socket.gethostbyname(socket.gethostname()), 21)
+                    response_str = "FOUND {} {}\r\n".format(file_name, len(file_data))
+                    response_str += "Address {}:{}\r\n".format(socket.gethostbyname(socket.gethostname()), share_port)
                     conn.sendall(response_str.encode())
-                    conn.sendall(file_data)
                 return
     # If file is not found locally, forward the query to all connections except the one that sent the query
     for connection in connections:
         if connection != conn:
             connection.sendall(data.encode())
 
+
+def handle_download_query(data, conn):
+    global share_folder
+    query = data.split()[1]
+    if os.path.isdir(share_folder):
+        for file_name in os.listdir(share_folder):
+            if query.lower() in file_name.lower():
+                file_path = os.path.join(share_folder, file_name)
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                    conn.sendall(file_data)
+                conn.close()
+                return
 
 def handle_connection(conn, addr):
     # Handle an incoming connection from another node in the Gnutella network
@@ -46,20 +60,25 @@ def handle_connection(conn, addr):
                 break
             elif data.startswith("SEARCH"):
                 threading.Thread(target=handle_query, args=(data, conn)).start()
+            elif data.startswith("RETR"):
+                threading.Thread(target=handle_download_query, args=(data, conn)).start()
         except ConnectionResetError:
             break
     conn.close()
     print("Connection to {}:{} closed (incoming)".format(addr[0], addr[1]))
  
-def listen():
+def listen(port):
     # Listen for incoming connections from other nodes in the Gnutella network
     global connections
-    host = ""  # accept connections on all available network interfaces
-    port = 1234  # replace with an actual port number
+    host = ""  # accept connections on all available network interface
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, port))
     sock.listen()
-    print("Listening for incoming connections on port {}".format(port))
+    if port == share_port:
+        print("Listening for incoming connections for file sharing")
+    else:
+        print("Listening for incoming connections on port {}".format(port))
     while True:
         conn, addr = sock.accept()
         connections.append(conn)
@@ -106,7 +125,7 @@ def search(query):
             if query.lower() in file_name.lower():
                 file_path = os.path.join(share_folder, file_name)
                 file_size = os.path.getsize(file_path)
-                file_node = (socket.gethostbyname(socket.gethostname()), 21)
+                file_node = (socket.gethostbyname(socket.gethostname()), share_port)
                 if file_name not in file_nodes:
                     file_nodes[file_name] = []
                 if file_node not in file_nodes[file_name]:
@@ -213,8 +232,7 @@ def prompt_loop():
                     connect(host, port)
                 except ValueError:
                     print("Invalid port number")
-        elif command == "listen":
-            threading.Thread(target=listen, daemon=True).start()  # start listening in a separate thread
+          # start listening in a separate thread
         elif command == "disconnect":
             disconnect(args[0] if args else "")
         elif command == "list":
@@ -232,5 +250,6 @@ def prompt_loop():
             print("Invalid command. Type 'help' for a list of commands.")
 
 if __name__ == '__main__':
-    threading.Thread(target=listen, daemon=True).start()  # start listening in a separate thread
+    threading.Thread(target=listen, args=(1234,), daemon=True).start()  # start listening in a separate thread
+    threading.Thread(target=listen, args=(share_port,), daemon=True).start()  # start listening in a separate thread
     prompt_loop()
