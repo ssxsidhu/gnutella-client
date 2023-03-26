@@ -1,3 +1,4 @@
+
 import socket
 import threading
 import os
@@ -7,9 +8,11 @@ connections = []
 downloads_folder = "Downloads"
 share_folder = "share"
 share_port = 6000
- 
+
 def connect(host, port):
     # Connect to a given node in the Gnutella network
+    host = '130.179.28.133'
+    port = 1234
     global connections
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -35,8 +38,6 @@ def handle_query(data, conn):
     for connection in connections:
         if connection != conn:
             connection.sendall(data.encode())
-
-
 def handle_download_query(data, conn):
     global share_folder
     query = data.split()[1]
@@ -112,25 +113,32 @@ def list_connections():
             print("{}: {}:{}".format(i+1, conn.getpeername()[0], conn.getpeername()[1]))
  
 file_nodes = {}
-
 def search(query):
     # Search for files on the Gnutella network
     global connections, share_folder, file_nodes
     query_str = "SEARCH {}\r\n".format(query)
+    nodes_with_file = []
     for conn in connections:
         conn.sendall(query_str.encode())
-    nodes_with_file = []
+        response = conn.recv(1024).decode()
+        if response.startswith("FOUND"):
+            lines = response.split("\n")
+            _, file_name, file_size = lines[0].split(" ")
+            address = lines[1].split(" ")
+            ip, port = address[1].split(":")
+            nodes_with_file.append((file_name.strip(), file_size.strip(), (ip.strip(), port.strip())))
     if os.path.isdir(share_folder):
         for file_name in os.listdir(share_folder):
             if query.lower() in file_name.lower():
                 file_path = os.path.join(share_folder, file_name)
                 file_size = os.path.getsize(file_path)
-                file_node = (socket.gethostbyname(socket.gethostname()), share_port)
+                file_node = (socket.gethostbyname(socket.gethostname()), 6000)
                 if file_name not in file_nodes:
                     file_nodes[file_name] = []
                 if file_node not in file_nodes[file_name]:
                     file_nodes[file_name].append(file_node)
                 nodes_with_file.append((file_name, file_size, file_nodes[file_name]))
+    
     return nodes_with_file
 
 def search_and_download(query):
@@ -138,20 +146,17 @@ def search_and_download(query):
     if not nodes_with_file:
         print("File not found")
         return
-    for i, (file_name, file_size, node_list) in enumerate(nodes_with_file):
-        print("{}: {} ({} bytes)".format(i+1, file_name, file_size))
-        print("    Nodes with file:")
-        for node in node_list:
-            print("        {}:{}".format(node[0], node[1]))
-    choice = input("Enter the number of the file to download: ")
+    
+    for i, (file_name, file_size, address) in enumerate(nodes_with_file):
+        print(f"{i+1}. {address[0]}:{address[1]}")
+    choice = input("Enter the number of the node to download from: ")
     try:
         choice_index = int(choice) - 1
-        selected_file = nodes_with_file[choice_index]
-        selected_node = input("Enter the number of the node to download from: ")
-        selected_node_index = int(selected_node) - 1
-        ftp_host, ftp_port = selected_file[2][selected_node_index]
-        download(selected_file[0], ftp_host, ftp_port)
-    except (ValueError, IndexError):
+        selected_node = nodes_with_file[choice_index]
+        ftp_host, ftp_port = selected_node[2][0], selected_node[2][1]
+        download(selected_node[0], ftp_host, int(ftp_port))
+    except (ValueError, IndexError) as e:
+        print(e)
         print("Invalid choice")
     
  
@@ -166,41 +171,46 @@ def download(file_name, ftp_host=None, ftp_port=None):
         with open(download_path, 'wb') as f:
             ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ftp_sock.connect((ftp_host, ftp_port))
-            ftp_sock.sendall(b"RETR {}\r\n".format(file_name))
+            ftp_sock.sendall(("RETR {}\r\n".format(file_name)).encode())
+            ftp_sock.settimeout(3)  # Set a timeout of 10 seconds on the socket
+
             while True:
-                data = ftp_sock.recv(1024)
-                if not data:
-                    break
-                f.write(data)
-            ftp_sock.close()
-        print("File downloaded to {}".format(download_path))
-        return
-    for conn in connections:
-        query_str = "DOWNLOAD {}\r\n".format(file_name)
-        conn.sendall(query_str.encode())
-        response = conn.recv(1024).decode()
-        if response.startswith("FOUND"):
-            parts = response.split("\r\n")
-            host = parts[1].split()[1]
-            port = int(parts[2].split()[1])
-            ftp_host, ftp_port = host, port
-            with open(download_path, 'wb') as f:
-                ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                ftp_sock.connect((ftp_host, ftp_port))
-                ftp_sock.sendall(b"RETR {}\r\n".format(file_name))
-                while True:
-                    data = ftp_sock.recv(1024)
+                try:
+                    data = ftp_sock.recv(4096)
                     if not data:
                         break
                     f.write(data)
-                ftp_sock.close()
-            print("File downloaded to {}".format(download_path))
-            file_node = (host, port)
-            if file_name not in file_nodes:
-                file_nodes[file_name] = []
-            if file_node not in file_nodes[file_name]:
-                file_nodes[file_name].append(file_node)
-            return
+                except socket.timeout:
+                    break
+            ftp_sock.close()
+        print("File downloaded to {}".format(download_path))
+        return
+    # for conn in connections:
+    #     query_str = "DOWNLOAD {}\r\n".format(file_name)
+    #     conn.sendall(query_str.encode())
+    #     response = conn.recv(1024).decode()
+    #     if response.startswith("FOUND"):
+    #         parts = response.split("\r\n")
+    #         host = parts[1].split()[1]
+    #         port = int(parts[2].split()[1])
+    #         ftp_host, ftp_port = host, port
+    #         with open(download_path, 'wb') as f:
+    #             ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #             ftp_sock.connect((ftp_host, ftp_port))
+    #             ftp_sock.sendall(b"RETR {}\r\n".format(file_name))
+    #             while True:
+    #                 data = ftp_sock.recv(1024)
+    #                 if not data:
+    #                     break
+    #                 f.write(data)
+    #             ftp_sock.close()
+    #         print("File downloaded to {}".format(download_path))
+    #         file_node = (host, port)
+    #         if file_name not in file_nodes:
+    #             file_nodes[file_name] = []
+    #         if file_node not in file_nodes[file_name]:
+    #             file_nodes[file_name].append(file_node)
+    #         return
     print("File not found")
 
  
@@ -208,7 +218,6 @@ def help_menu():
     # Show the help message
     print("Commands:")
     print("connect [host] [port] - Connect to a node in the Gnutella network")
-    print("listen - Listen for incoming connections from other nodes in the Gnutella network")
     print("disconnect [connection number] - Disconnect from the specified connection or all connections")
     print("list - List all current connections")
     print("search [query] - Search for files on the Gnutella network")
@@ -222,23 +231,25 @@ def prompt_loop():
         user_input = input("> ").split()
         command = user_input[0]
         args = user_input[1:]
-        if command == "connect":
-            if len(args) != 2:
-                print("Usage: connect [host] [port]")
-            else:
-                try:
-                    host = args[0]
-                    port = int(args[1])
-                    connect(host, port)
-                except ValueError:
-                    print("Invalid port number")
-          # start listening in a separate thread
+        if command == "c":
+            connect('1', 2)
+            # if len(args) != 2:
+            #     print("Usage: connect [host] [port]")
+            # else:
+            #     try:
+            #         host = args[0]
+            #         port = int(args[1])
+            #         connect(host, port)
+            #     except ValueError:
+            #         print("Invalid port number")
+        # start listening in a separate thread
         elif command == "disconnect":
             disconnect(args[0] if args else "")
         elif command == "list":
             list_connections()
-        elif command == "search":
-            search_and_download(" ".join(args))
+        elif command == "s":
+            #TODO change this
+            search_and_download('atest')
         elif command == "help":
             help_menu()
         elif command == "quit":
