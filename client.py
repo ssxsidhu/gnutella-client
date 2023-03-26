@@ -49,6 +49,7 @@ def handle_download_query(data, conn):
                     file_data = f.read()
                     conn.sendall(file_data)
                 conn.close()
+                connections.remove(conn)
                 return
 
 def handle_connection(conn, addr):
@@ -66,6 +67,7 @@ def handle_connection(conn, addr):
         except ConnectionResetError:
             break
     conn.close()
+    connections.remove(conn)
     print("Connection to {}:{} closed (incoming)".format(addr[0], addr[1]))
  
 def listen(port):
@@ -255,6 +257,7 @@ def prompt_loop():
         elif command == "quit":
             for conn in connections:
                 conn.close()
+                connections.remove(conn)
             print("Goodbye!")
             break
         else:
