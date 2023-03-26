@@ -1,4 +1,4 @@
-from pprint import PrettyPrinter
+
 import socket
 import threading
 import os
@@ -7,7 +7,8 @@ import os
 connections = []
 downloads_folder = "Downloads"
 share_folder = "share"
- 
+share_port = 6000
+
 def connect(host, port):
     # Connect to a given node in the Gnutella network
     host = '130.179.28.133'
@@ -29,16 +30,26 @@ def handle_query(data, conn):
                 file_path = os.path.join(share_folder, file_name)
                 with open(file_path, 'rb') as f:
                     file_data = f.read()
-                    response_str = "FIND {} {}\r\n".format(file_name, len(file_data))
-                    response_str += "Address {}:{}\r\n".format(socket.gethostbyname(socket.gethostname()), 6000)
+                    response_str = "FOUND {} {}\r\n".format(file_name, len(file_data))
+                    response_str += "Address {}:{}\r\n".format(socket.gethostbyname(socket.gethostname()), share_port)
                     conn.sendall(response_str.encode())
-                    conn.sendall(file_data)
                 return
     # If file is not found locally, forward the query to all connections except the one that sent the query
     for connection in connections:
         if connection != conn:
             connection.sendall(data.encode())
-
+def handle_download_query(data, conn):
+    global share_folder
+    query = data.split()[1]
+    if os.path.isdir(share_folder):
+        for file_name in os.listdir(share_folder):
+            if query.lower() in file_name.lower():
+                file_path = os.path.join(share_folder, file_name)
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                    conn.sendall(file_data)
+                conn.close()
+                return
 
 def handle_connection(conn, addr):
     # Handle an incoming connection from another node in the Gnutella network
@@ -50,6 +61,8 @@ def handle_connection(conn, addr):
                 break
             elif data.startswith("SEARCH"):
                 threading.Thread(target=handle_query, args=(data, conn)).start()
+            elif data.startswith("RETR"):
+                threading.Thread(target=handle_download_query, args=(data, conn)).start()
         except ConnectionResetError:
             break
     conn.close()
@@ -58,12 +71,15 @@ def handle_connection(conn, addr):
 def listen(port):
     # Listen for incoming connections from other nodes in the Gnutella network
     global connections
-    host = ""  # accept connections on all available network interfaces
+    host = ""  # accept connections on all available network interface
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((host, port))
     sock.listen()
-    print("Listening for incoming connections on port {}".format(port))
+    if port == share_port:
+        print("Listening for incoming connections for file sharing")
+    else:
+        print("Listening for incoming connections on port {}".format(port))
     while True:
         conn, addr = sock.accept()
         connections.append(conn)
@@ -97,7 +113,6 @@ def list_connections():
             print("{}: {}:{}".format(i+1, conn.getpeername()[0], conn.getpeername()[1]))
  
 file_nodes = {}
-
 def search(query):
     # Search for files on the Gnutella network
     global connections, share_folder, file_nodes
@@ -246,5 +261,6 @@ def prompt_loop():
             print("Invalid command. Type 'help' for a list of commands.")
 
 if __name__ == '__main__':
-    threading.Thread(target=listen, args=(1234,),daemon=True).start()  # start listening in a separate thread
+    threading.Thread(target=listen, args=(1234,), daemon=True).start()  # start listening in a separate thread
+    threading.Thread(target=listen, args=(share_port,), daemon=True).start()  # start listening in a separate thread
     prompt_loop()
