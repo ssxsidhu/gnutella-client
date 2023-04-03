@@ -48,8 +48,12 @@ I was not able to find a suitable network to show the working of the client. So,
 
 ![Network design](Network-design.png)
 
-In the image, your node can be connected to any node and it should be able to access the files on any other node in the network. You can add more nodes to expand the network.
+In the image, your node can be connected to any node and it should be able to access the files on any other node in the network. You can add more nodes to expand the network. This network was tested on Aviary.
 IMPORTANT: This network is going to be active till May 10, 2023 
+
+## Troubleshooting
+
+- Sometime's the program is not able to get the host's ip address correctly, try to switch to a system such as Aviary, where it's easier to detect the public ip of user.
 
 ## More resources
  
@@ -60,3 +64,7 @@ IMPORTANT: This network is going to be active till May 10, 2023
  ## Contributors
 
  - Sahilpreet Singh Sidhu (only 1 member): sidhuss3@myumanitoba.ca
+
+## Github
+
+https://github.com/ssxsidhu/gnutella-client
