@@ -68,7 +68,7 @@ def send_log(log_msg):
 
 def handle_query(data, conn):
     # Handle an incoming query from another node in the Gnutella network
-    global SHARE_FOLDER, connections
+    global SHARE_FOLDER, connections, connected_node_address
     query = data.split()[1]
     address = data.split('ADDRESS')[1].strip()
     host, port = address.split(':')
@@ -85,6 +85,7 @@ def handle_query(data, conn):
                     sock.sendall(response_str.encode())
                     sock.close()
                     connections.remove(sock)
+                    connected_node_address.remove(address)
             
     # If file is not found locally, forward the query to all connections except the one that sent the query
     for connection in connections:
@@ -93,6 +94,8 @@ def handle_query(data, conn):
                 connection.sendall(data.encode())
             except (BrokenPipeError, OSError):
                 connections.remove(connection)
+                connected_node_address.remove(address)
+
     
     
 def handle_download_query(data, conn):
@@ -133,11 +136,15 @@ def handle_connection(conn, addr, incoming = None):
             elif data.startswith("RETR"):
                 threading.Thread(target=handle_download_query, args=(data, conn)).start()
             
-        except ConnectionResetError:
+        except (ConnectionResetError, ConnectionAbortedError):
             break
     conn.close()
     if  conn in connections:
         connections.remove(conn)
+        address = addr[0]+':'+str(addr[1])
+        if address in connected_node_address:
+            connected_node_address.remove(address)
+
     if incoming:
         send_log("\nConnection to {}:{} closed (incoming)\n".format(addr[0], addr[1]))
  
@@ -169,17 +176,27 @@ def disconnect(connection_num):
         for conn in connections:
             conn.close()
         connections.clear()
+        connected_node_address.clear()
         print("All connections closed")
     else:
         try:
             conn_index = int(connection_num) - 1
             conn = connections[conn_index]
-            conn.close()
+            remove_from_connected(conn)
             connections.pop(conn_index)
+            conn.close()
             print("Connection {} closed".format(connection_num))
         except IndexError:
             print("Invalid connection number")
- 
+
+def remove_from_connected(socket_info):
+    global connected_node_address
+    ip_address = socket_info.getpeername()[0]
+    port_number = socket_info.getpeername()[1]
+    formatted_address = f"{ip_address}:{port_number}"
+    if formatted_address in connected_node_address:
+        connected_node_address.remove(formatted_address)
+
 def list_connections():
     # List all current connections
     global connections
@@ -226,10 +243,7 @@ def list_results(nodes_with_file):
         download(selected_node[0], ftp_host, int(ftp_port))
     except (ValueError, IndexError) as e:
         print("Invalid choice")
-    
 
-# def call_list_results(search_results):
-#     list_results(search_results)
 
 def download(file_name, ftp_host=None, ftp_port=None):
     # Download a file from the Gnutella network using FTP
@@ -243,7 +257,7 @@ def download(file_name, ftp_host=None, ftp_port=None):
             ftp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             ftp_sock.connect((ftp_host, ftp_port))
             ftp_sock.sendall(("RETR {}\r\n".format(file_name)).encode())
-            ftp_sock.settimeout(5)  # Set a timeout of 5 seconds on the socket
+            ftp_sock.settimeout(2)  # Set a timeout of 2 seconds on the socket
 
             while True:
                 try:
@@ -318,6 +332,7 @@ def prompt_loop():
                 conn.close()
                 if  conn in connections:
                     connections.remove(conn)
+            connected_node_address.clear()
             print("Goodbye!")
             break
         else:
