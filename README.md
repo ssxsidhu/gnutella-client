@@ -46,7 +46,7 @@ quit - Quit the client
 
 I was not able to find a suitable network to show the working of the client. So, I created a small network using a bunch of nodes containing files to test the network. The following image showa the designs, and the files associated with each node.
 
-![Network design](Network-design.png)
+![Network design](Documentation/Network-design.png)
 
 In the image, your node can be connected to any node and it should be able to access the files on any other node in the network. You can add more nodes to expand the network. This network was tested on Aviary.
 IMPORTANT: This network is going to be active till May 10, 2023 
